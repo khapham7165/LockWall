@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>A separate lock screen wallpaper for your Mac — plus your desktop wallpaper, screen saver and hot corners, all from the menu bar.</b><br>
-  Native SwiftUI · macOS 15+ · Free and open source
+  Native SwiftUI · ~16 MB idle · macOS 15+ · Free and open source
 </p>
 
 <p align="center">
@@ -55,9 +55,25 @@ The headline feature, and something macOS can't do on its own.
 ### 🍎 Feels like part of macOS
 
 - Lives in the menu bar; no Dock icon.
-- Standard Settings window, built with SwiftUI.
+- Standard macOS Settings window with toolbar tabs, built with SwiftUI.
 - Open at login, hide the menu bar icon (open the app again to reach Settings), a one-screen welcome.
 - No network access, no analytics, no account.
+
+### 🪶 Lightweight
+
+LockWall sits in the background all day, so it's built to cost next to nothing:
+
+| | Idle | Settings open | After closing Settings |
+|---|---|---|---|
+| Memory | ~16 MB | ~40 MB | ~37 MB |
+| CPU | 0% | ≤0.3% | 0% |
+| Wakeups | 0 per minute | ~3 per minute | ~3 per minute |
+
+- No polling: it only wakes when your Mac locks or unlocks, or when a rotation is due.
+- Images are never loaded at full size — previews are downsampled, so a 5K wallpaper costs the same as a small one.
+- The Settings window is created when you open it and freed when you close it.
+
+<sub>Measured on macOS 27 (M4 Pro) with `footprint` and `top` over 60-second samples.</sub>
 
 ## Install
 
