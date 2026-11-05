@@ -46,6 +46,20 @@ enum Keys {
     static let backgroundHex = "backgroundHex"
     static let restoreDelay = "restoreDelay"
     static let maxRetries = "maxRetries"
+    static let desktopScaling = "desktopScaling"
+    static let desktopBackgroundHex = "desktopBackgroundHex"
+    static let desktopColorHex = "desktopColorHex"
+    static let desktopImagePath = "desktopImagePath"
+    static let rotationEnabled = "rotationEnabled"
+    static let rotationFolder = "rotationFolder"
+    static let rotationInterval = "rotationInterval"
+    static let rotationShuffle = "rotationShuffle"
+    static let rotationLast = "rotationLast"
+    static let rotationCurrent = "rotationCurrent"
+    static let recents = "recents"
+    static let showInMenuBar = "showInMenuBar"
+    static let hasOnboarded = "hasOnboarded"
+    static let settingsPane = "settingsPane"
 }
 
 /// Non-view access to the same UserDefaults keys the views bind with @AppStorage.
@@ -57,7 +71,32 @@ enum Prefs {
             Keys.enabled: true, Keys.style: LockStyle.black.rawValue, Keys.colorHex: "1C1C1E",
             Keys.scaling: Scaling.fill.rawValue, Keys.backgroundHex: "000000",
             Keys.restoreDelay: 2.0, Keys.maxRetries: 4,
+            Keys.desktopScaling: Scaling.fill.rawValue,
+            Keys.desktopBackgroundHex: "000000", Keys.desktopColorHex: "1C1C1E",
+            Keys.rotationInterval: 1800, Keys.rotationShuffle: true, Keys.showInMenuBar: true,
         ])
+    }
+
+    static var desktopScaling: Scaling { Scaling(rawValue: d.string(forKey: Keys.desktopScaling) ?? "") ?? .fill }
+    static var desktopBackgroundHex: String { d.string(forKey: Keys.desktopBackgroundHex) ?? "000000" }
+    static var desktopImagePath: String {
+        get { d.string(forKey: Keys.desktopImagePath) ?? "" }
+        set { d.set(newValue, forKey: Keys.desktopImagePath) }
+    }
+    static var rotationEnabled: Bool {
+        get { d.bool(forKey: Keys.rotationEnabled) }
+        set { d.set(newValue, forKey: Keys.rotationEnabled) }
+    }
+    static var rotationFolder: String { d.string(forKey: Keys.rotationFolder) ?? "" }
+    static var rotationInterval: Int { max(60, d.integer(forKey: Keys.rotationInterval)) }
+    static var rotationShuffle: Bool { d.bool(forKey: Keys.rotationShuffle) }
+    static var rotationLast: Double {
+        get { d.double(forKey: Keys.rotationLast) }
+        set { d.set(newValue, forKey: Keys.rotationLast) }
+    }
+    static var rotationCurrent: String {
+        get { d.string(forKey: Keys.rotationCurrent) ?? "" }
+        set { d.set(newValue, forKey: Keys.rotationCurrent) }
     }
 
     static var enabled: Bool { d.bool(forKey: Keys.enabled) }

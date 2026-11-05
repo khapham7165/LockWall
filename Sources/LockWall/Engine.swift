@@ -9,18 +9,19 @@ final class Engine: ObservableObject {
 
     @Published private(set) var status = "Waiting for the screen to lock"
     @Published private(set) var logLines: [String] = []
-    @Published private(set) var isPreviewing = false
+    @Published private(set) var problem: String?  // shown in the menu until the next success
+    @Published private(set) var lastRestored: Date?
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var hasSavedDesktop = false
 
     let supportDir: URL
     let logURL: URL
-    private let storeURL: URL
+    private let storeURL = WallpaperStore.url
     private let savedURL: URL
     private let fm = FileManager.default
     // Every lock image we hand to macOS carries this in its filename, so the store tells us if it's ours.
     private let marker = Data("lockwall-lockimage-".utf8)
-    private var isLocked = false
+    private(set) var isLocked = false
     private var observers: [NSObjectProtocol] = []
     private let stamp: DateFormatter = {
         let f = DateFormatter()
@@ -31,16 +32,11 @@ final class Engine: ObservableObject {
     private init() {
         let home = fm.homeDirectoryForCurrentUser
         supportDir = home.appending(path: "Library/Application Support/LockWall")
-        storeURL = home.appending(path: "Library/Application Support/com.apple.wallpaper/Store/Index.plist")
         savedURL = supportDir.appending(path: "desktop-config.plist")
         logURL = home.appending(path: "Library/Logs/LockWall.log")
         try? fm.createDirectory(at: supportDir, withIntermediateDirectories: true)
         Prefs.registerDefaults()
 
-        let legacy = home.appending(path: ".lockwall/good.plist")
-        if !fm.fileExists(atPath: savedURL.path), fm.fileExists(atPath: legacy.path) {
-            try? fm.copyItem(at: legacy, to: savedURL)
-        }
         hasSavedDesktop = fm.fileExists(atPath: savedURL.path)
         loadLogTail()
         loadPreviewImage()
@@ -86,6 +82,7 @@ final class Engine: ObservableObject {
             return true
         } catch {
             log("\(reason): couldn't apply lock wallpaper — \(error.localizedDescription)")
+            problem = "Couldn't show the lock screen wallpaper"
             return false
         }
     }
@@ -98,16 +95,20 @@ final class Engine: ObservableObject {
         do {
             try Data(contentsOf: savedURL).write(to: storeURL, options: .atomic)
         } catch {
+            problem = "No saved desktop wallpaper to restore"
             return log("\(reason): no saved desktop wallpaper to restore — pick one in Wallpaper settings")
         }
-        killWallpaperAgent()
+        WallpaperStore.killAgent()
         DispatchQueue.main.asyncAfter(deadline: .now() + Prefs.restoreDelay) { [weak self] in
             guard let self else { return }
             if !self.storeIsOurs() {
+                self.lastRestored = Date()
+                self.problem = nil
                 self.log("\(reason) → desktop wallpaper restored" + (attempt > 1 ? " (attempt \(attempt))" : ""))
             } else if attempt < Prefs.maxRetries {
                 self.restore(reason: reason, attempt: attempt + 1)
             } else {
+                self.problem = "Couldn't restore your desktop wallpaper"
                 self.log("\(reason): gave up restoring after \(attempt) attempts")
             }
         }
@@ -117,18 +118,15 @@ final class Engine: ObservableObject {
     func restoreBeforeQuit() {
         guard storeIsOurs(), let data = try? Data(contentsOf: savedURL) else { return }
         try? data.write(to: storeURL, options: .atomic)
-        killWallpaperAgent()
+        WallpaperStore.killAgent()
     }
 
-    func preview(seconds: Double = 5) {
-        guard !isPreviewing else { return }
-        isPreviewing = true
-        guard applyLockWallpaper(reason: "Preview") else { isPreviewing = false; return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            guard let self else { return }
-            self.isPreviewing = false
-            if !self.isLocked { self.restore(reason: "Preview ended") }  // if locked, unlock restores
-        }
+    /// Same as ⌃⌘Q; private but long-stable login.framework call.
+    func lockNow() {
+        typealias LockFn = @convention(c) () -> Void
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY),
+              let sym = dlsym(handle, "SACLockScreenImmediate") else { return log("Lock Screen Now isn't available") }
+        unsafeBitCast(sym, to: LockFn.self)()
     }
 
     // MARK: Lock image
@@ -159,9 +157,7 @@ final class Engine: ObservableObject {
     }
 
     private func lockWallpaper() throws -> (URL, [NSWorkspace.DesktopImageOptionKey: Any], String) {
-        let solid: [NSWorkspace.DesktopImageOptionKey: Any] = [
-            .imageScaling: NSImageScaling.scaleAxesIndependently.rawValue, .allowClipping: true,
-        ]
+        let solid = SolidImage.options
         switch Prefs.style {
         case .black:
             return (try solidImage("000000"), solid, "black")
@@ -178,40 +174,17 @@ final class Engine: ObservableObject {
     }
 
     private func solidImage(_ hex: String) throws -> URL {
-        let url = supportDir.appending(path: "lockwall-lockimage-color-\(hex).png")
-        if fm.fileExists(atPath: url.path) { return url }
-        let size = 16
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8, samplesPerPixel: 4,
-            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-        )?.retagging(with: .sRGB) else { throw CocoaError(.fileWriteUnknown) }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        (NSColor(hex: hex) ?? .black).setFill()
-        NSRect(x: 0, y: 0, width: size, height: size).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        guard let png = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
-        try png.write(to: url, options: .atomic)
-        return url
+        try SolidImage.make(hex: hex, prefix: "lockwall-lockimage-color-", in: supportDir)
     }
 
     // MARK: Helpers
 
-    private func storeIsOurs() -> Bool {
+    func storeIsOurs() -> Bool {
         guard let data = try? Data(contentsOf: storeURL) else { return false }
         return data.range(of: marker) != nil
     }
 
-    private func killWallpaperAgent() {
-        // SIGKILL: on SIGTERM WallpaperAgent may flush its in-memory lock image over our restore.
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        p.arguments = ["-9", "WallpaperAgent"]
-        try? p.run()
-        p.waitUntilExit()
-    }
-
-    private func log(_ message: String) {
+    func log(_ message: String) {
         let line = "\(stamp.string(from: Date()))  \(message)"
         status = message
         logLines.append(line)
