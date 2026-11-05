@@ -13,6 +13,6 @@
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
-    <key>NSHumanReadableCopyright</key><string>Separate lock screen wallpaper.</string>
+    <key>NSHumanReadableCopyright</key><string>© 2026 Calix. MIT License.</string>
 </dict>
 </plist>
