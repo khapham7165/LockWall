@@ -1,24 +1,104 @@
+import Darwin
 import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum SettingsPane: String { case general, lock, desktop, screenSaver, advanced }
+enum SettingsPane: String, CaseIterable {
+    case general, lock, desktop, screenSaver, advanced
 
-struct SettingsView: View {
-    @AppStorage(Keys.settingsPane) private var pane = SettingsPane.lock  // restore the last-viewed pane
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .lock: "Lock Screen"
+        case .desktop: "Desktop"
+        case .screenSaver: "Screen Saver"
+        case .advanced: "Advanced"
+        }
+    }
 
-    var body: some View {
-        TabView(selection: $pane) {
-            GeneralTab().frame(width: 580, height: 340)
-                .tabItem { Label("General", systemImage: "gearshape") }.tag(SettingsPane.general)
-            LockScreenTab().frame(width: 580, height: 530)
-                .tabItem { Label("Lock Screen", systemImage: "lock.display") }.tag(SettingsPane.lock)
-            DesktopTab().frame(width: 580, height: 700)
-                .tabItem { Label("Desktop", systemImage: "photo.on.rectangle") }.tag(SettingsPane.desktop)
-            ScreenSaverTab().frame(width: 580, height: 660)
-                .tabItem { Label("Screen Saver", systemImage: "sparkles.tv") }.tag(SettingsPane.screenSaver)
-            AdvancedTab().frame(width: 580, height: 520)
-                .tabItem { Label("Advanced", systemImage: "gearshape.2") }.tag(SettingsPane.advanced)
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .lock: "lock.display"
+        case .desktop: "photo.on.rectangle"
+        case .screenSaver: "sparkles.tv"
+        case .advanced: "gearshape.2"
+        }
+    }
+
+    @MainActor @ViewBuilder
+    var content: some View {
+        switch self {
+        case .general: GeneralTab().frame(width: 580, height: 340)
+        case .lock: LockScreenTab().frame(width: 580, height: 530)
+        case .desktop: DesktopTab().frame(width: 580, height: 700)
+        case .screenSaver: ScreenSaverTab().frame(width: 580, height: 660)
+        case .advanced: AdvancedTab().frame(width: 580, height: 520)
+        }
+    }
+}
+
+/// AppKit-owned Settings window, created on demand and destroyed on close so it costs nothing while closed
+/// (SwiftUI's Settings scene keeps its whole view tree alive after closing).
+@MainActor
+final class SettingsWindow: NSObject, NSWindowDelegate {
+    static let shared = SettingsWindow()
+    private var window: NSWindow?
+    private var tabs: PaneTabs?
+
+    func show(_ pane: SettingsPane? = nil) {
+        if let pane { UserDefaults.standard.set(pane.rawValue, forKey: Keys.settingsPane) }
+        if window == nil { build() }
+        if let pane, let i = SettingsPane.allCases.firstIndex(of: pane) { tabs?.selectedTabViewItemIndex = i }
+        NSApp.activate()
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func build() {
+        let tabs = PaneTabs()
+        tabs.tabStyle = .toolbar
+        for pane in SettingsPane.allCases {
+            let host = NSHostingController(rootView: pane.content
+                .environmentObject(Engine.shared)
+                .environmentObject(Wallpapers.shared))
+            host.sizingOptions = .preferredContentSize
+            host.title = pane.title
+            let item = NSTabViewItem(viewController: host)
+            item.label = pane.title
+            item.image = NSImage(systemSymbolName: pane.symbol, accessibilityDescription: pane.title)
+            tabs.addTabViewItem(item)
+        }
+        let saved = SettingsPane(rawValue: UserDefaults.standard.string(forKey: Keys.settingsPane) ?? "") ?? .lock
+        tabs.selectedTabViewItemIndex = SettingsPane.allCases.firstIndex(of: saved) ?? 0
+
+        let w = NSWindow(contentViewController: tabs)
+        w.styleMask = [.titled, .closable]  // HIG: settings windows dim minimize and zoom
+        w.toolbarStyle = .preference
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.center()
+        w.setFrameAutosaveName("LockWallSettings")
+        window = w
+        self.tabs = tabs
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        DispatchQueue.main.async {
+            self.window = nil
+            self.tabs = nil
+            Thumbnails.purge()
+            // Hand the freed heap back to macOS rather than holding it until memory pressure.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { malloc_zone_pressure_relief(nil, 0) }
+        }
+    }
+}
+
+/// Remembers the last-viewed pane (HIG: restore the most recently viewed pane).
+private final class PaneTabs: NSTabViewController {
+    override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: item)
+        if let item, let i = tabView.tabViewItems.firstIndex(of: item) {
+            UserDefaults.standard.set(SettingsPane.allCases[i].rawValue, forKey: Keys.settingsPane)
         }
     }
 }
@@ -79,6 +159,7 @@ private struct GeneralTab: View {
             Section {
                 LabeledContent("LockWall \(version)") {
                     Button("Show Welcome…") { openWindow(id: "welcome") }
+                        .accessibilityLabel("Show Welcome")
                 }
             }
         }
@@ -135,6 +216,7 @@ struct LaunchAtLoginToggle: View {
         if status == .requiresApproval {
             LabeledContent("") {
                 Button("Open Login Items…") { SMAppService.openSystemSettingsLoginItems() }
+                    .accessibilityLabel("Open Login Items")
             }
         }
     }
@@ -196,6 +278,7 @@ private struct LockScreenTab: View {
                             Text(imageName.isEmpty ? "None" : imageName)
                                 .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             Button("Choose…") { pickImage() }
+                                .accessibilityLabel("Choose lock screen image")
                         }
                     }
                     Picker("Scaling", selection: $scaling) {
@@ -211,6 +294,7 @@ private struct LockScreenTab: View {
                 LabeledContent {
                     Button("Lock Screen Now") { engine.lockNow() }
                         .disabled(!enabled)
+                        .accessibilityLabel("Lock Screen Now")
                 } label: {
                     Text("See it for real")
                     Text("Your desktop comes back as soon as you unlock.")
@@ -234,8 +318,8 @@ private struct LockScreenTab: View {
 }
 
 private struct LockStyleThumb: View {
-    @EnvironmentObject private var engine: Engine
     @AppStorage(Keys.colorHex) private var colorHex = "1C1C1E"
+    @AppStorage(Keys.imagePath) private var imagePath = ""
     let style: LockStyle
 
     var body: some View {
@@ -245,7 +329,7 @@ private struct LockStyleThumb: View {
         case .color:
             Color(nsColor: NSColor(hex: colorHex) ?? .black).overlay(miniClock)
         case .image:
-            if let img = engine.previewImage {
+            if let img = Thumbnails.image(imagePath, maxPixels: 320) {
                 Color.clear.overlay(Image(nsImage: img).resizable().scaledToFill()).clipped().overlay(miniClock)
             } else {
                 Color(nsColor: .quaternaryLabelColor)
@@ -264,8 +348,8 @@ private struct LockStyleThumb: View {
 
 /// Approximates the lock screen: wallpaper plus the date and time.
 struct LockPreview: View {
-    @EnvironmentObject private var engine: Engine
     @AppStorage(Keys.style) private var style = LockStyle.black
+    @AppStorage(Keys.imagePath) private var imagePath = ""
     @AppStorage(Keys.colorHex) private var colorHex = "1C1C1E"
     @AppStorage(Keys.scaling) private var scaling = Scaling.fill
     @AppStorage(Keys.backgroundHex) private var backgroundHex = "000000"
@@ -312,7 +396,7 @@ struct LockPreview: View {
         case .color:
             Color(nsColor: NSColor(hex: colorHex) ?? .black)
         case .image:
-            if let img = engine.previewImage {
+            if let img = Thumbnails.image(imagePath, maxPixels: 1024) {
                 switch scaling {
                 case .fill:
                     Image(nsImage: img).resizable().scaledToFill()
@@ -323,9 +407,10 @@ struct LockPreview: View {
                     Image(nsImage: img).resizable()
                 case .center:
                     let k = size.width / screenSize.width
+                    let original = Thumbnails.pixelSize(imagePath) ?? img.size
                     background.overlay(
                         Image(nsImage: img).resizable()
-                            .frame(width: img.size.width * k, height: img.size.height * k)
+                            .frame(width: original.width * k, height: original.height * k)
                     )
                     .clipped()
                 }
@@ -360,6 +445,7 @@ private struct AdvancedTab: View {
                 }
                 LabeledContent("If your desktop stays on the lock wallpaper") {
                     Button("Restore Now") { engine.restore(reason: "Manual") }
+                        .accessibilityLabel("Restore desktop wallpaper now")
                 }
             } header: {
                 Text("Unlock")

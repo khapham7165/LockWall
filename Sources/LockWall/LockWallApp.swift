@@ -17,10 +17,6 @@ struct LockWallApp: App {
                 .accessibilityLabel("LockWall")
         }
 
-        Settings {
-            SettingsView().environmentObject(engine).environmentObject(wallpapers)
-        }
-
         Window("Welcome to LockWall", id: "welcome") {
             WelcomeView().environmentObject(engine)
         }
@@ -32,46 +28,16 @@ struct LockWallApp: App {
     }
 }
 
-/// Opens Settings, optionally on a given pane; needs a live view's `openSettings`.
-@MainActor
-func showSettings(_ pane: SettingsPane? = nil, using openSettings: OpenSettingsAction) {
-    if let pane { UserDefaults.standard.set(pane.rawValue, forKey: Keys.settingsPane) }
-    NSApp.activate()
-    openSettings()
-}
-
-/// Hosts a throwaway view just to reach `openSettings` (macOS ignores showSettingsWindow: since 14).
-private struct SettingsBridge: View {
-    @Environment(\.openSettings) private var openSettings
-    let done: () -> Void
-
-    var body: some View {
-        Color.clear.frame(width: 1, height: 1)
-            .onAppear {
-                showSettings(using: openSettings)
-                done()
-            }
-    }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var bridge: NSWindow?
-
     // The menu bar icon can be hidden or crowded out, so reopening the app must always reach Settings.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        MainActor.assumeIsolated {
-            let window = NSWindow(contentRect: NSRect(x: -100, y: -100, width: 1, height: 1),
-                                  styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.alphaValue = 0
-            window.contentView = NSHostingView(rootView: SettingsBridge { [weak self] in
-                DispatchQueue.main.async { self?.bridge?.close(); self?.bridge = nil }
-            })
-            window.orderFront(nil)
-            bridge = window
-        }
+        MainActor.assumeIsolated { SettingsWindow.shared.show() }
         return false
     }
+
+    // A menu bar app keeps running with no windows open.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { Engine.shared.restoreBeforeQuit() }
     }
@@ -80,7 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MenuContent: View {
     @EnvironmentObject private var engine: Engine
     @EnvironmentObject private var wallpapers: Wallpapers
-    @Environment(\.openSettings) private var openSettings
     @AppStorage(Keys.enabled) private var enabled = true
     @AppStorage(Keys.style) private var style = LockStyle.black
     @AppStorage(Keys.rotationEnabled) private var rotating = false
@@ -109,7 +74,7 @@ struct MenuContent: View {
 
         Section("Desktop") {
             if wallpapers.desktopPresets.isEmpty {
-                Button("Save Current Wallpaper…") { showSettings(.desktop, using: openSettings) }
+                Button("Save Current Wallpaper…") { SettingsWindow.shared.show(.desktop) }
             }
             ForEach(wallpapers.desktopPresets) { preset in
                 Toggle(isOn: Binding(get: { wallpapers.isCurrent(preset) }, set: { _ in wallpapers.apply(preset) })) {
@@ -149,12 +114,12 @@ struct MenuContent: View {
             }
             if !wallpapers.screenSaverPresets.isEmpty { Divider() }
             Button("Start Screen Saver") { SystemSettings.startScreenSaver() }
-            Button("Screen Saver Settings…") { showSettings(.screenSaver, using: openSettings) }
+            Button("Screen Saver Settings…") { SettingsWindow.shared.show(.screenSaver) }
         }
 
         Divider()
 
-        Button("Settings…") { showSettings(using: openSettings) }
+        Button("Settings…") { SettingsWindow.shared.show() }
             .keyboardShortcut(",")
         Button("Quit LockWall") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

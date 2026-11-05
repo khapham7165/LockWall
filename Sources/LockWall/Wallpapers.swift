@@ -33,6 +33,7 @@ final class Wallpapers: ObservableObject {
     private var watcher: DispatchSourceFileSystemObject?
     private var refreshPending = false
     private var timer: Timer?
+    private var unlockObserver: NSObjectProtocol?
     private var colorWork: DispatchWorkItem?
 
     private init() {
@@ -42,8 +43,12 @@ final class Wallpapers: ObservableObject {
            let list = try? JSONDecoder().decode([Recent].self, from: data) { recents = list }
         refresh()
         watchStore()
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rotationTick() }
+        scheduleRotation()
+        // Rotation pauses while locked; pick it back up once the desktop is restored.
+        unlockObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleRotation(notBefore: 10) }
         }
     }
 
@@ -244,6 +249,7 @@ final class Wallpapers: ObservableObject {
     func stopRotation() {
         guard Prefs.rotationEnabled else { return }
         Prefs.rotationEnabled = false
+        scheduleRotation()
         engine.log("Desktop rotation stopped")
     }
 
@@ -264,12 +270,32 @@ final class Wallpapers: ObservableObject {
         Prefs.rotationCurrent = next.path
         Prefs.rotationLast = Date().timeIntervalSince1970
         setImage(next, fromRotation: true)
+        scheduleRotation()
+    }
+
+    /// One timer, only while rotating, due at the next change; tolerance lets macOS batch the wakeup.
+    func scheduleRotation(notBefore delay: TimeInterval = 1) {
+        timer?.invalidate()
+        timer = nil
+        guard Prefs.rotationEnabled else { return }
+        let due = Date(timeIntervalSince1970: Prefs.rotationLast + Double(Prefs.rotationInterval))
+        let t = Timer(fire: max(due, Date().addingTimeInterval(delay)), interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rotationTick() }
+        }
+        t.tolerance = max(5, Double(Prefs.rotationInterval) * 0.1)
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     private func rotationTick() {
-        // Never rotate under the lock screen, or the lock wallpaper would be replaced.
-        guard Prefs.rotationEnabled, !engine.isLocked, !engine.storeIsOurs(), !busy else { return }
-        if Date().timeIntervalSince1970 - Prefs.rotationLast >= Double(Prefs.rotationInterval) { nextWallpaper() }
+        guard Prefs.rotationEnabled else { return }
+        if engine.isLocked { return }  // never rotate under the lock screen; unlock reschedules
+        if engine.storeIsOurs() || busy { return scheduleRotation(notBefore: 15) }  // mid-restore or applying
+        if Date().timeIntervalSince1970 - Prefs.rotationLast >= Double(Prefs.rotationInterval) - 1 {
+            nextWallpaper()
+        } else {
+            scheduleRotation()
+        }
     }
 
     // MARK: Screen saver timing

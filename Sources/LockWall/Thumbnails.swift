@@ -2,14 +2,36 @@ import AppKit
 import ImageIO
 import SwiftUI
 
-/// Downsampled image thumbnails, cached by path.
+/// Downsampled image thumbnails; never decodes a full-size image. Evictable under memory pressure.
 @MainActor
 enum Thumbnails {
-    private static var cache: [String: NSImage] = [:]
+    private static let cache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.totalCostLimit = 24 << 20  // ~24 MB of decoded pixels
+        return c
+    }()
+    private static var sizes: [String: CGSize] = [:]
+
+    static func purge() {
+        cache.removeAllObjects()
+        sizes.removeAll()
+    }
+
+    /// Original pixel size, read from the file header without decoding.
+    static func pixelSize(_ path: String) -> CGSize? {
+        if let s = sizes[path] { return s }
+        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? CGFloat,
+              let h = props[kCGImagePropertyPixelHeight] as? CGFloat else { return nil }
+        sizes[path] = CGSize(width: w, height: h)
+        return sizes[path]
+    }
 
     static func image(_ path: String, maxPixels: Int = 480) -> NSImage? {
-        let key = "\(path)#\(maxPixels)"
-        if let hit = cache[key] { return hit }
+        guard !path.isEmpty else { return nil }
+        let key = "\(path)#\(maxPixels)" as NSString
+        if let hit = cache.object(forKey: key) { return hit }
         guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -17,7 +39,7 @@ enum Thumbnails {
                   kCGImageSourceThumbnailMaxPixelSize: maxPixels,
               ] as CFDictionary) else { return nil }
         let img = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-        cache[key] = img
+        cache.setObject(img, forKey: key, cost: cg.bytesPerRow * cg.height)
         return img
     }
 

@@ -144,6 +144,7 @@ struct DesktopTab: View {
                     Button("Choose Image…") {
                         if let url = chooseImageOrFolder(directories: false) { wallpapers.setImage(url) }
                     }
+                    .accessibilityLabel("Choose desktop image")
                 }
                 Picker("Image scaling", selection: $scaling) {
                     ForEach(Scaling.allCases) { Text($0.title).tag($0) }
@@ -175,17 +176,20 @@ struct DesktopTab: View {
                                 if rotating { wallpapers.nextWallpaper() }
                             }
                         }
+                        .accessibilityLabel("Choose rotation folder")
                     }
                 }
                 Picker("Change picture", selection: $interval) {
                     ForEach(intervals, id: \.0) { Text($0.1).tag($0.0) }
                 }
                 .disabled(!rotating)
+                .onChange(of: interval) { wallpapers.scheduleRotation() }
                 Toggle("Random order", isOn: $shuffle)
                     .disabled(!rotating)
                 LabeledContent("") {
                     Button("Next Wallpaper") { wallpapers.nextWallpaper() }
                         .disabled(!rotating)
+                        .accessibilityLabel("Next Wallpaper")
                 }
             }
         }
@@ -229,6 +233,7 @@ struct ScreenSaverTab: View {
                 }
                 LabeledContent("Preview") {
                     Button("Start Screen Saver") { SystemSettings.startScreenSaver() }
+                        .accessibilityLabel("Start Screen Saver")
                 }
             }
 

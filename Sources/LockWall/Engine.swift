@@ -11,7 +11,6 @@ final class Engine: ObservableObject {
     @Published private(set) var logLines: [String] = []
     @Published private(set) var problem: String?  // shown in the menu until the next success
     @Published private(set) var lastRestored: Date?
-    @Published private(set) var previewImage: NSImage?
     @Published private(set) var hasSavedDesktop = false
 
     let supportDir: URL
@@ -39,8 +38,6 @@ final class Engine: ObservableObject {
 
         hasSavedDesktop = fm.fileExists(atPath: savedURL.path)
         loadLogTail()
-        loadPreviewImage()
-
         let dnc = DistributedNotificationCenter.default()
         observers.append(dnc.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.screenLocked() }
@@ -144,16 +141,10 @@ final class Engine: ObservableObject {
             Prefs.imagePath = dest.path
             Prefs.imageName = source.lastPathComponent
             Prefs.style = .image
-            loadPreviewImage()
             log("Lock image set to \(source.lastPathComponent)")
         } catch {
             log("Couldn't import \(source.lastPathComponent) — \(error.localizedDescription)")
         }
-    }
-
-    private func loadPreviewImage() {
-        let path = Prefs.imagePath
-        previewImage = path.isEmpty ? nil : NSImage(contentsOfFile: path)
     }
 
     private func lockWallpaper() throws -> (URL, [NSWorkspace.DesktopImageOptionKey: Any], String) {
