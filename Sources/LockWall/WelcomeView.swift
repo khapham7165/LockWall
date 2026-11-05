@@ -1,9 +1,38 @@
 import SwiftUI
 
+/// First-run welcome window, created on demand and released on close (works on macOS 14).
+@MainActor
+final class WelcomeWindow: NSObject, NSWindowDelegate {
+    static let shared = WelcomeWindow()
+    private var window: NSWindow?
+
+    func show() {
+        if window == nil {
+            let host = NSHostingController(rootView: WelcomeView { [weak self] in self?.window?.close() })
+            host.sizingOptions = .preferredContentSize
+            let w = NSWindow(contentViewController: host)
+            w.styleMask = [.titled, .closable, .fullSizeContentView]
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.title = "Welcome to LockWall"
+            w.isReleasedWhenClosed = false
+            w.delegate = self
+            w.center()
+            window = w
+        }
+        NSApp.activate()
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        UserDefaults.standard.set(true, forKey: Keys.hasOnboarded)  // HIG: never show it again unasked
+        DispatchQueue.main.async { self.window = nil }
+    }
+}
+
 /// One-screen first-run welcome: what LockWall does, where it lives, open at login.
 struct WelcomeView: View {
-    @Environment(\.dismissWindow) private var dismissWindow
-    @AppStorage(Keys.hasOnboarded) private var hasOnboarded = false
+    let close: () -> Void
 
     var body: some View {
         VStack(spacing: 22) {
@@ -44,8 +73,7 @@ struct WelcomeView: View {
             }
 
             Button {
-                hasOnboarded = true
-                dismissWindow(id: "welcome")
+                close()
             } label: {
                 Text("Get Started").frame(maxWidth: .infinity)
             }
@@ -57,8 +85,6 @@ struct WelcomeView: View {
         .padding(.top, 28)
         .padding(.bottom, 28)
         .frame(width: 460)
-        .onAppear { NSApp.activate() }
-        .onDisappear { hasOnboarded = true }
     }
 }
 

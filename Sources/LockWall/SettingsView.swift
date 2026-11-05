@@ -30,7 +30,7 @@ enum SettingsPane: String, CaseIterable {
     var content: some View {
         switch self {
         case .general: GeneralTab().frame(width: 580, height: 340)
-        case .lock: LockScreenTab().frame(width: 580, height: 530)
+        case .lock: LockScreenTab()  // sizes itself: its options grow with the chosen style
         case .desktop: DesktopTab().frame(width: 580, height: 700)
         case .screenSaver: ScreenSaverTab().frame(width: 580, height: 660)
         case .advanced: AdvancedTab().frame(width: 580, height: 520)
@@ -132,7 +132,6 @@ func chooseImageOrFolder(directories: Bool) -> URL? {
 
 private struct GeneralTab: View {
     @EnvironmentObject private var engine: Engine
-    @Environment(\.openWindow) private var openWindow
     @AppStorage(Keys.enabled) private var enabled = true
     @AppStorage(Keys.showInMenuBar) private var showInMenuBar = true
 
@@ -158,7 +157,7 @@ private struct GeneralTab: View {
             }
             Section {
                 LabeledContent("LockWall \(version)") {
-                    Button("Show Welcome…") { openWindow(id: "welcome") }
+                    Button("Show Welcome…") { WelcomeWindow.shared.show() }
                         .accessibilityLabel("Show Welcome")
                 }
             }
@@ -302,6 +301,15 @@ private struct LockScreenTab: View {
             }
         }
         .formStyle(.grouped)
+        .frame(width: 580, height: height)
+    }
+
+    private var height: CGFloat {
+        switch style {
+        case .black: 500
+        case .color: 550
+        case .image: scaling.usesBackground ? 655 : 605
+        }
     }
 
     private func select(_ s: LockStyle) {

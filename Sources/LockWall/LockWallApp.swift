@@ -7,7 +7,6 @@ struct LockWallApp: App {
     @StateObject private var wallpapers = Wallpapers.shared
     @AppStorage(Keys.enabled) private var enabled = true
     @AppStorage(Keys.showInMenuBar) private var showInMenuBar = true
-    @AppStorage(Keys.hasOnboarded) private var hasOnboarded = false
 
     var body: some Scene {
         MenuBarExtra(isInserted: $showInMenuBar) {
@@ -16,19 +15,16 @@ struct LockWallApp: App {
             Image(systemName: engine.problem != nil ? "exclamationmark.triangle" : (enabled ? "lock.display" : "display"))
                 .accessibilityLabel("LockWall")
         }
-
-        Window("Welcome to LockWall", id: "welcome") {
-            WelcomeView().environmentObject(engine)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-        .restorationBehavior(.disabled)
-        .defaultLaunchBehavior(hasOnboarded ? .suppressed : .presented)
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            if !UserDefaults.standard.bool(forKey: Keys.hasOnboarded) { WelcomeWindow.shared.show() }
+        }
+    }
+
     // The menu bar icon can be hidden or crowded out, so reopening the app must always reach Settings.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainActor.assumeIsolated { SettingsWindow.shared.show() }

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "LockWall",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     targets: [.executableTarget(name: "LockWall", path: "Sources/LockWall")],
     swiftLanguageModes: [.v5]
 )

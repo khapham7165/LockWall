@@ -6,11 +6,12 @@
 
 <p align="center">
   <b>A separate lock screen wallpaper for your Mac — plus your desktop wallpaper, screen saver and hot corners, all from the menu bar.</b><br>
-  Native SwiftUI · ~16 MB idle · macOS 15+ · Free and open source
+  Native SwiftUI · ~16 MB idle · macOS 14+ · Free and open source<br>
+  <a href="https://github.com/khapham7165/LockWall/releases/latest"><b>⬇︎ Download</b></a>
 </p>
 
 <p align="center">
-  <img src="docs/lock-screen.png" width="560" alt="LockWall lock screen settings">
+  <img src="docs/demo.gif" width="560" alt="LockWall demo: choosing a black, solid color or image lock screen, then the Desktop and Screen Saver panes">
 </p>
 
 ## Why
@@ -77,7 +78,21 @@ LockWall sits in the background all day, so it's built to cost next to nothing:
 
 ## Install
 
-LockWall is built from source (it isn't notarized yet). You need macOS 15 or later and Xcode 16 or later (or the Swift 6 command line tools).
+Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel. Tested on macOS 27.
+
+### Download
+
+1. Download `LockWall-<version>.zip` from the [latest release](https://github.com/khapham7165/LockWall/releases/latest) and unzip it.
+2. Move **LockWall** to your Applications folder and open it.
+3. LockWall isn't notarized by Apple yet, so macOS blocks the first launch. Open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run:
+
+   ```sh
+   xattr -d com.apple.quarantine /Applications/LockWall.app
+   ```
+
+### Build from source
+
+You need Xcode 16 or later (or the Swift 6 command line tools).
 
 ```sh
 git clone https://github.com/khapham7165/LockWall.git
